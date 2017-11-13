@@ -1,0 +1,14 @@
+# SERVICE PROPERTIES
+[SERVICE]
+# which port should the app listen
+port = 1234
+
+# RATING API CALLS INFO
+[RATING_API]
+# URL to get authentication token
+token_url = http://test.com/token_api/
+# credentials for the authentication token call
+username = user
+password = 0000
+# URL to get rating
+ratings_url = http://test.com/rating_api/

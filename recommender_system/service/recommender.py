@@ -35,6 +35,11 @@ class RecommenderSystem:
         self.create_neighbourhood_dict(unit)
 
     def create_ui_matrix(self, ratings_json):
+        """
+        Note that user and item indices are decremented by 1 in order to start from zero
+        :param ratings_json:
+        :return:
+        """
         values = list()
         row_idxs = list()
         col_idxs = list()
@@ -110,6 +115,7 @@ class RecommenderSystem:
     def create_neighbourhood_dict(self, unit='user'):
         """
         Create a dictionary containing the neighbours of each unit (user or item)
+        Indices start from 0 like in the ui matrix (instead of 1).
         :return:
         """
 
@@ -129,13 +135,13 @@ class RecommenderSystem:
             print("Wrong matrix parameter value!!!")
             return
 
-        for user_id in range(len(correlation_matrix)):
-            correlation_vector = correlation_matrix[user_id, :]
+        for id in range(len(correlation_matrix)):
+            correlation_vector = correlation_matrix[id, :]
             correlation_vector = [x if not np.isnan(x) else 0 for x in correlation_vector]
             sorted_indices = sorted(range(len(correlation_vector)), key=lambda i: correlation_vector[i])
-            sorted_indices.remove(user_id)
+            sorted_indices.remove(id)
             sorted_indices.reverse()
-            neighbourhood[user_id] = sorted_indices
+            neighbourhood[id] = sorted_indices
 
     def recommend_items(self, user_id, max_recommendations, max_neighbours=2, method='user'):
         """
@@ -176,6 +182,7 @@ class RecommenderSystem:
                 # get the neighbours of the user which will get recommendations
                 neighbourhood = neighbourhoods[user_id_in_ui]
                 for neighbour_id in neighbourhood:
+                    # take into account only user neighbours who rated the item
                     # row = the neighbour of the user, column = the item to be automatically rated
                     if self.ui_matrix[neighbour_id, zero_idx] != 0:
                         # row = user which will get recommendations, column = the neighbour of the user
@@ -183,7 +190,7 @@ class RecommenderSystem:
                         if np.isnan(correlation):
                             correlation = 0
                         similarity = correlation
-                        correlations_sum += correlation
+                        correlations_sum += abs(correlation)
                         neighbour_rating = self.ui_matrix[neighbour_id, zero_idx]
                         numerator += similarity * neighbour_rating
                         num_neighbours += 1
@@ -193,6 +200,7 @@ class RecommenderSystem:
                 # get the neighbours of the item to be rated
                 neighbourhood = neighbourhoods[zero_idx]
                 for neighbour_id in neighbourhood:
+                    # take into account only neighbours rated by the user
                     # row = user which will get recommendations, column = the neighbour of the item to be rated
                     if self.ui_matrix[user_id_in_ui, neighbour_id] != 0:
                         # row = the item to be rated, column = the neighbour of the item to be rated
@@ -200,7 +208,7 @@ class RecommenderSystem:
                         if np.isnan(correlation):
                             correlation = 0
                         similarity = correlation
-                        correlations_sum += correlation
+                        correlations_sum += abs(correlation)
                         neighbour_rating = self.ui_matrix[user_id_in_ui, neighbour_id]
                         numerator += similarity * neighbour_rating
                         num_neighbours += 1
@@ -215,6 +223,7 @@ class RecommenderSystem:
 
         sorted_indices = sorted(range(len(predictions)), key=lambda i: predictions[i])
         sorted_indices.reverse()
+        # increment by one to return the original indices
         recommendations = [x + 1 for x in sorted_indices[:max_recommendations]]
         return recommendations
 
@@ -229,8 +238,10 @@ class RecommenderSystem:
         if self.users_neighbourhood is None:
             return ["Error: Missing user neighbourhood"]
         else:
-            neighbours = self.users_neighbourhood[user_id]
-            recommendations = neighbours[:max_recommendations]
+            user_id_in_ui = user_id - 1
+            neighbours = self.users_neighbourhood[user_id_in_ui]
+            # increment by one to return the original indices
+            recommendations = [x + 1 for x in neighbours[:max_recommendations]]
             return recommendations
 
 

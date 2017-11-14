@@ -68,7 +68,7 @@ def recommend_items():
     retrieve item recommendations
     input parameters:
     - user_id, which user should get the recommendations
-    - max_items, maximum number of recommendations
+    - max_num, maximum number of recommendations
     - method, 'user' for user-based recommendations or 'item' for item-based
     :return:
     """
@@ -76,9 +76,10 @@ def recommend_items():
 
     params = request.args
     user_id = params.get('user_id', type=int)
-    max_items = params.get('max_items', type=int)
+    max_items = params.get('max_num', type=int)
     method = params.get('method', 'user')
 
+    print()
     print("ITEM RECOMMENDER SERVICE REQUEST")
     print("User id:", user_id)
     print("Max number of recommendations:", max_items)
@@ -90,7 +91,7 @@ def recommend_items():
     response_object = dict()
     if not user_id or not max_items:
         status_code = 400
-        error = 'Invalid parameters (user_id or max_items)'
+        error = 'Invalid parameters (user_id or max_num)'
         response_object['error'] = error
     elif method not in valid_methods:
         status_code = 400
@@ -101,7 +102,7 @@ def recommend_items():
         recommender.update_user_info(CONFIG_FILE)
         recommender.update_neighbourhood(method)
         recommendations = recommender.recommend_items(user_id, max_items, method=method)
-        response_object['user_id'] = user_id
+        response_object['input_user_id'] = user_id
         response_object['recommended_item_ids'] = recommendations
     response = Response(response=json.dumps(response_object),
                         status=status_code,
@@ -117,32 +118,33 @@ def recommend_users():
     retrieve user recommendations
     input parameters:
     - user_id, which user should get the recommendations
-    - max_items, maximum number of recommendations
+    - max_num, maximum number of recommendations
     :return:
     """
     start = time.time()
 
     params = request.args
     user_id = params.get('user_id', type=int)
-    max_items = params.get('max_items', type=int)
+    max_users = params.get('max_num', type=int)
 
+    print()
     print("USER RECOMMENDER SERVICE REQUEST")
     print("User id:", user_id)
-    print("Max number of recommendations:", max_items)
+    print("Max number of recommendations:", max_users)
 
     status_code = 200
 
     response_object = dict()
-    if not user_id or not max_items:
+    if not user_id or not max_users:
         status_code = 400
-        error = 'Invalid parameters (user_id or max_items)'
+        error = 'Invalid parameters (user_id or max_num)'
         response_object['error'] = error
     else:
         recommender = RecommenderSystem()
         recommender.update_user_info(CONFIG_FILE)
         recommender.update_neighbourhood("user")
-        recommendations = recommender.recommend_users(user_id, max_items)
-        response_object['user_id'] = user_id
+        recommendations = recommender.recommend_users(user_id, max_users)
+        response_object['input_user_id'] = user_id
         response_object['recommended_user_ids'] = recommendations
     response = Response(response=json.dumps(response_object),
                         status=status_code,

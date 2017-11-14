@@ -89,7 +89,7 @@ def recommend_items():
     status_code = 200
 
     response_object = dict()
-    if not user_id or not max_items:
+    if user_id is None or max_items is None:
         status_code = 400
         error = 'Invalid parameters (user_id or max_num)'
         response_object['error'] = error
@@ -100,10 +100,16 @@ def recommend_items():
     else:
         recommender = RecommenderSystem()
         recommender.update_user_info(CONFIG_FILE)
-        recommender.update_neighbourhood(method)
-        recommendations = recommender.recommend_items(user_id, max_items, method=method)
-        response_object['input_user_id'] = user_id
-        response_object['recommended_item_ids'] = recommendations
+        # check validity of user id based on retrieved data
+        if recommender.is_user_id_valid(user_id):
+            recommender.update_neighbourhood(method)
+            recommendations = recommender.recommend_items(user_id, max_items, method=method)
+            response_object['input_user_id'] = user_id
+            response_object['recommended_item_ids'] = recommendations
+        else:
+            status_code = 400
+            error = 'user id must have values between 1 and ' + str(recommender.max_user_id())
+            response_object['error'] = error
     response = Response(response=json.dumps(response_object),
                         status=status_code,
                         mimetype="application/json")
@@ -135,17 +141,23 @@ def recommend_users():
     status_code = 200
 
     response_object = dict()
-    if not user_id or not max_users:
+    if user_id is None or max_users is None:
         status_code = 400
         error = 'Invalid parameters (user_id or max_num)'
         response_object['error'] = error
     else:
         recommender = RecommenderSystem()
         recommender.update_user_info(CONFIG_FILE)
-        recommender.update_neighbourhood("user")
-        recommendations = recommender.recommend_users(user_id, max_users)
-        response_object['input_user_id'] = user_id
-        response_object['recommended_user_ids'] = recommendations
+        # check validity of user id based on retrieved data
+        if recommender.is_user_id_valid(user_id):
+            recommender.update_neighbourhood("user")
+            recommendations = recommender.recommend_users(user_id, max_users)
+            response_object['input_user_id'] = user_id
+            response_object['recommended_user_ids'] = recommendations
+        else:
+            status_code = 400
+            error = 'user id must have values between 1 and ' + str(recommender.max_user_id())
+            response_object['error'] = error
     response = Response(response=json.dumps(response_object),
                         status=status_code,
                         mimetype="application/json")

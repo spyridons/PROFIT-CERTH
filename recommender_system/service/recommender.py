@@ -15,6 +15,23 @@ class RecommenderSystem:
         self.users_neighbourhood = None
         self.items_neighbourhood = None
 
+    def is_user_id_valid(self, user_id):
+        """
+        used for validating input user id
+        :param user_id:
+        :return:
+        """
+        if self.ui_matrix is not None:
+            if 1 <= user_id <= self.ui_matrix.shape[0]:
+                return True
+        return False
+
+    def max_user_id(self):
+        if self.ui_matrix is None:
+            return -1
+        else:
+            return self.ui_matrix.shape[0]
+
     def update_user_info(self, config_file):
         """
         function to store user-item matrix

@@ -1,4 +1,4 @@
-import configparser, requests
+import configparser, requests, pickle, os, datetime, subprocess
 
 
 class RatingApiHandler:
@@ -64,4 +64,34 @@ class RatingApiHandler:
         return json_response
 
 
+class ArticleSimilaritiesHandler:
 
+    @staticmethod
+    def update_article_sims(config_file):
+        """
+        function can be removed when the executions will be run automatically
+        :param config_file:
+        :return:
+        """
+        config = configparser.ConfigParser()
+        config.read(config_file)
+        swc_api_config = config['SWC_API']
+        similarities_file = swc_api_config['article_similarities_path']
+        scripts_dir = swc_api_config['scripts_dir']
+        update_articles_script = swc_api_config['update_articles_script']
+        compute_similarities_script = swc_api_config['compute_similarities_script']
+        date_m_epoch = os.path.getmtime(similarities_file)
+        date_m = datetime.datetime.utcfromtimestamp(date_m_epoch)
+        date = (date_m - datetime.timedelta(hours=5)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        subprocess.run("python " + compute_similarities_script + " " + date, cwd=scripts_dir)
+
+    @staticmethod
+    def get_article_similarities(config_file):
+        config = configparser.ConfigParser()
+        config.read(config_file)
+        swc_api_config = config['SWC_API']
+        similarities_file = swc_api_config['article_similarities_path']
+        api_result = pickle.load(open(similarities_file, "rb"))
+        uri_id_dict = api_result[1]
+        article_similarities_matrix = api_result[2]
+        return uri_id_dict, article_similarities_matrix

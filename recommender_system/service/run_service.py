@@ -227,7 +227,7 @@ def favicon():
                                'favicon.png', mimetype='image/vnd.microsoft.icon')
 
 
-@app.route('/ratings')
+# @app.route('/ratings')
 def ratings():
     """
     For debugging purposes, return the ratings info from the respective API

@@ -1,0 +1,8 @@
+.env/
+env/
+logs/
+recommender_system/__pycache__/
+recommender_system/service/.gitignore
+recommender_system/service/__pycache__/
+recommender_system/service/logs/
+

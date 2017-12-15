@@ -2,6 +2,8 @@
 [SERVICE]
 # which port should the app listen
 port = 1234
+# hours to trigger automatic update of recommender data (values: 0-23)
+update_data_hours = 12,14
 
 # RATING API CALLS INFO
 [RATING_API]
@@ -12,3 +14,7 @@ username = user
 password = 0000
 # URL to get rating
 ratings_url = http://test.com/rating_api/
+
+# INFO CONCERNING API DEVELOPED BY SWC
+[SWC_API]
+article_similarities_path = ../../gs_articles/scripts/sim_mx.pkl

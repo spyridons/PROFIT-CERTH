@@ -18,7 +18,7 @@ sys.path.append('../../')
 from flask import Flask, request, Response, abort
 from logging.handlers import TimedRotatingFileHandler
 from recommender_system.service.recommender import RecommenderSystem
-from recommender_system.service.data_retriever import RatingApiHandler, ArticleSimilaritiesHandler
+from recommender_system.service.data_retriever import RatingApiHandler
 from flask import send_from_directory
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -144,9 +144,9 @@ def recommend_items():
     status_code = 200
 
     response_object = dict()
-    if user_id is None or max_items is None:
+    if max_items is None:
         status_code = 400
-        error = 'Invalid parameters (user_id or max_num)'
+        error = 'Invalid max_num'
         response_object['error'] = error
     elif method not in valid_methods:
         status_code = 400
@@ -162,8 +162,12 @@ def recommend_items():
                 recommender.save_recommender_data(CONFIG_FILE, RECOMMENDER_DATA_FILE)
             else:
                 recommender = RecommenderSystem.load_recommender_data(RECOMMENDER_DATA_FILE)
+        if user_id is None:
+            recommendations = recommender.recommend_default(max_items)
+            response_object['input_user_id'] = 'Not defined'
+            response_object['recommended_items'] = recommendations
         # check validity of user id based on retrieved data
-        if recommender.is_user_id_valid(user_id):
+        elif recommender.is_user_id_valid(user_id):
             recommendations = recommender.recommend_items(user_id, max_items, method=method)
             response_object['input_user_id'] = user_id
             response_object['recommended_items'] = recommendations

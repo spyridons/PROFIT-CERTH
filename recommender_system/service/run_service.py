@@ -162,19 +162,15 @@ def recommend_items():
                 recommender.save_recommender_data(CONFIG_FILE, RECOMMENDER_DATA_FILE)
             else:
                 recommender = RecommenderSystem.load_recommender_data(RECOMMENDER_DATA_FILE)
-        if user_id is None:
+        # check validity of user id based on retrieved data
+        if user_id is None or not recommender.is_user_id_valid(user_id):
             recommendations = recommender.recommend_default(max_items)
             response_object['input_user_id'] = 'Not defined'
             response_object['recommended_items'] = recommendations
-        # check validity of user id based on retrieved data
-        elif recommender.is_user_id_valid(user_id):
+        else:
             recommendations = recommender.recommend_items(user_id, max_items, method=method)
             response_object['input_user_id'] = user_id
             response_object['recommended_items'] = recommendations
-        else:
-            status_code = 400
-            error = 'user id must have values between 1 and ' + str(recommender.max_user_id())
-            response_object['error'] = error
     response = Response(response=json.dumps(response_object),
                         status=status_code,
                         mimetype="application/json")

@@ -50,8 +50,21 @@ class RecommenderSystem:
         self.id_uri_dict = None
 
         self.default_recommendations = None
+        self.default_user_recommendations = None
 
         self.err_msg = ''
+
+        self.user_blacklist = []
+        self.item_blacklist = []
+
+    def add_item_to_blacklist(self, uri):
+        # add id into the black list, not the uri
+        if uri in self.uri_id_dict.keys():
+            id = self.uri_id_dict[uri]
+            self.item_blacklist.append(id)
+
+    def add_user_to_blacklist(self, id):
+        self.user_blacklist.append(id)
 
     def is_user_id_valid(self, user_id):
         """
@@ -70,9 +83,9 @@ class RecommenderSystem:
         else:
             return self.ui_matrix.shape[0]
 
-    def save_recommender_data(self, config_file, recommender_data_file):
+    def calculate_and_save_recommender_data(self, config_file, recommender_data_file):
         """
-        store ui_matrix, ii_matrix, correlations and neighbourhoods to a pickle file containing a dictionary variable
+        calculate and store ui_matrix, ii_matrix, correlations and neighbourhoods to a pickle file
         :param config_file:
         :param recommender_data_file:
         :return:
@@ -86,13 +99,23 @@ class RecommenderSystem:
         self.update_correlations_and_neighbourhood('item')
         self.create_neighbourhood_dict('item-ii')
         self.create_default_recommendations()
+        self.create_default_user_recommendations()
 
+        self.save_recommender_data(recommender_data_file)
+
+    def save_recommender_data(self, recommender_data_file):
         # store the recommender data to a pickle file
         print("Storing recommender data...")
-        RecommenderSystem.SAVING_PROCESS_ACTIVE = True
-        # pickle.dump(recommender_data, open(recommender_data_file, "wb"))
-        pickle.dump(self, open(recommender_data_file, "wb"))
-        RecommenderSystem.SAVING_PROCESS_ACTIVE = False
+        complete = False
+        while not complete:
+            if RecommenderSystem.SAVING_PROCESS_ACTIVE:
+                print("Saving stalled for 0.5 seconds... another saving process is being executed right now!!!")
+                time.sleep(0.5)
+            else:
+                RecommenderSystem.SAVING_PROCESS_ACTIVE = True
+                pickle.dump(self, open(recommender_data_file, "wb"))
+                RecommenderSystem.SAVING_PROCESS_ACTIVE = False
+                complete = True
         print("Finished storing recommender data...")
 
     @staticmethod
@@ -322,9 +345,21 @@ class RecommenderSystem:
                 mean_score = col.sum() / num_ratings
                 mean_scores.append(mean_score)
             num_ratings_list.append(num_ratings)
+        # sort based on two criteria, first is the mean rating score, second is num users who rated the item
         sorted_indices = sorted(range(len(mean_scores)), key=lambda i: (mean_scores[i], num_ratings_list[i]))
         sorted_indices.reverse()
         self.default_recommendations = sorted_indices
+
+    def create_default_user_recommendations(self):
+        num_ratings_list = []
+        for i in range(self.ui_matrix.shape[0]):
+            row = self.ui_matrix.getrow(i)
+            num_ratings = row.nnz
+            num_ratings_list.append(num_ratings)
+        # sort based on the number of ratings
+        sorted_indices = sorted(range(len(num_ratings_list)), key=lambda i: num_ratings_list[i])
+        sorted_indices.reverse()
+        self.default_user_recommendations = sorted_indices
 
     def recommend_items(self, user_id, max_recommendations, method='user'):
         if method == 'hybrid':
@@ -356,16 +391,28 @@ class RecommenderSystem:
                 return [self.err_msg]
 
         if all([p == 0 for p in predictions]):
-            recommendations = [self.id_uri_dict[x] for x in self.default_recommendations[:max_recommendations]]
+            recommendations = self.recommend_default(max_recommendations)
         else:
             sorted_indices = sorted(range(len(predictions)), key=lambda i: predictions[i])
             sorted_indices.reverse()
+
+            # remove deleted items
+            sorted_indices = [x for x in sorted_indices if x not in self.item_blacklist]
 
             recommendations = [self.id_uri_dict[x] for x in sorted_indices[:max_recommendations]]
         return recommendations
 
     def recommend_default(self, max_recommendations):
+        # remove deleted items
+        self.default_recommendations = [x for x in self.default_recommendations if x not in self.item_blacklist]
+
         return [self.id_uri_dict[x] for x in self.default_recommendations[:max_recommendations]]
+
+    def recommend_default_users(self, max_recommendations):
+        # remove deleted users
+        self.default_user_recommendations = [x for x in self.default_user_recommendations if x not in self.user_blacklist]
+
+        return [x for x in self.default_user_recommendations[:max_recommendations]]
 
     def get_predictions(self, user_id, max_neighbours=10, method='user'):
         """
@@ -550,6 +597,10 @@ class RecommenderSystem:
         else:
             user_id_in_ui = user_id - 1
             neighbours = self.users_neighbourhood[user_id_in_ui]
+
+            # remove deleted users
+            neighbours = [x for x in neighbours if x not in self.user_blacklist]
+
             # increment by one to return the original indices
             recommendations = [x + 1 for x in neighbours[:max_recommendations]]
             return recommendations

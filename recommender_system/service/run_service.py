@@ -31,6 +31,7 @@ RECOMMENDER_DATA_FILE = DATA_DIR + "/recommender_data.pkl"
 ARTICLE_SIMILARITIES_FILE = DATA_DIR + "/sim_mx.pkl"
 BLOCK_LIST = []  # fill this list with ips to be blocked (they will always get a 403 error)
 SCHEDULER = BackgroundScheduler()  # variable to schedule tasks
+LOGGER = logging.getLogger('werkzeug')
 app = Flask(__name__)
 
 
@@ -68,6 +69,7 @@ def setup_logger():
     """
     # logger used in flask, by default it prints only to stdout, we configure it to write to file as well
     logger = logging.getLogger('werkzeug')
+    # TODO: switch to INFO later on
     logger.setLevel(logging.DEBUG)
 
     file_handler = TimedRotatingFileHandler(LOGS_DIR + '/log', when='D')
@@ -89,9 +91,10 @@ def load_config(filename):
 
 
 def update_recommender_data():
-    print('Recommender data update started at', datetime.datetime.now())
+    LOGGER.info('Recommender data update started at %s' % datetime.datetime.now())
     recommender = RecommenderSystem()
     recommender.calculate_and_save_recommender_data(CONFIG_FILE, RECOMMENDER_DATA_FILE)
+    LOGGER.info('Recommender data update finished at %s' % datetime.datetime.now())
 
 
 def schedule_recommender_data_update(scheduler, hours):
@@ -134,11 +137,11 @@ def recommend_items():
     # if set to true, all calculations are made real-time (very slow option)
     on_the_fly = params.get('on_the_fly') == 'true'
 
-    print()
-    print("ITEM RECOMMENDER SERVICE REQUEST")
-    print("User id:", user_id)
-    print("Max number of recommendations:", max_items)
-    print("Method:", method)
+    if LOGGER.level == logging.DEBUG:
+        LOGGER.debug("ITEM RECOMMENDER SERVICE REQUEST")
+        LOGGER.debug("User id: %s" % user_id)
+        LOGGER.debug("Max number of recommendations: %s" % max_items)
+        LOGGER.debug("Method: %s" % method)
 
     valid_methods = ['user', 'item', 'item_h', 'hybrid', 'content']
     status_code = 200
@@ -175,7 +178,7 @@ def recommend_items():
                         status=status_code,
                         mimetype="application/json")
     elapsed = time.time() - start
-    print("Recommender service elapsed time:", elapsed, "seconds")
+    LOGGER.debug("Recommender service elapsed time: %d seconds" % elapsed)
     return response
 
 
@@ -196,10 +199,10 @@ def recommend_users():
     # if set to true, all calculations are made real-time (very slow option)
     on_the_fly = params.get('on_the_fly') == 'true'
 
-    print()
-    print("USER RECOMMENDER SERVICE REQUEST")
-    print("User id:", user_id)
-    print("Max number of recommendations:", max_users)
+    if LOGGER.level == logging.DEBUG:
+        LOGGER.debug("USER RECOMMENDER SERVICE REQUEST")
+        LOGGER.debug("User id: %s" % user_id)
+        LOGGER.debug("Max number of recommendations: %s" % max_users)
 
     status_code = 200
 
@@ -235,7 +238,7 @@ def recommend_users():
                         status=status_code,
                         mimetype="application/json")
     elapsed = time.time() - start
-    print("Recommender service elapsed time:", elapsed, "seconds")
+    LOGGER.debug("Recommender service elapsed time: %d seconds" % elapsed)
     return response
 
 
@@ -245,9 +248,9 @@ def black_list_item():
     params = request.args
     uri = params.get('uri')
 
-    print()
-    print("REQUEST FOR ITEM TO BE ADDED INTO BLACKLIST")
-    print("URI:", uri)
+    if LOGGER.level == logging.DEBUG:
+        LOGGER.debug("REQUEST FOR ITEM TO BE ADDED INTO BLACKLIST")
+        LOGGER.debug("URI: %s" % uri)
 
     status_code = 200
 
@@ -278,9 +281,9 @@ def black_list_user():
     params = request.args
     id = params.get('id', type=int)
 
-    print()
-    print("REQUEST FOR USER TO BE ADDED INTO BLACKLIST")
-    print("ID:", id)
+    if LOGGER.level == logging.DEBUG:
+        LOGGER.debug("REQUEST FOR USER TO BE ADDED INTO BLACKLIST")
+        LOGGER.debug("ID: %s" % id)
 
     status_code = 200
 

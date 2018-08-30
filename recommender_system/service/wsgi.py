@@ -1,4 +1,4 @@
-# To run Recommender under Gunicorn and Bginx
+# To run Recommender under Gunicorn and Nginx
 
 import run_service
 

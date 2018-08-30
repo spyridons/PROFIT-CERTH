@@ -1,0 +1,6 @@
+.venv/**
+*.pyc
+.project
+recommender_system/service/config.ini
+recommender_system/service/data/recommender_data.pkl
+recommender_system/service/logs/log

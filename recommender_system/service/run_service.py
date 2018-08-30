@@ -32,21 +32,6 @@ ARTICLE_SIMILARITIES_FILE = DATA_DIR + "/sim_mx.pkl"
 BLOCK_LIST = []  # fill this list with ips to be blocked (they will always get a 403 error)
 SCHEDULER = BackgroundScheduler()  # variable to schedule tasks
 LOGGER = logging.getLogger('werkzeug')
-app = Flask(__name__)
-
-
-def main():
-    create_folders()
-    setup_logger()
-    service_config = load_config(CONFIG_FILE)
-    port = int(service_config['port'])
-
-    # start scheduler and assign it to update recommender data
-    SCHEDULER.start()
-    schedule_recommender_data_update(SCHEDULER, service_config['update_data_hours'])
-    atexit.register(lambda: SCHEDULER.shutdown())  # Shut down the scheduler when exiting the app
-
-    app.run(host='0.0.0.0', port=port, threaded=True)
 
 
 def create_folders():
@@ -106,6 +91,30 @@ def schedule_recommender_data_update(scheduler, hours):
         id='update_recommender_data',
         name='Update recommender data',
         replace_existing=True)
+
+
+def create_app():
+    app = Flask(__name__)
+
+    create_folders()
+    setup_logger()
+    service_config = load_config(CONFIG_FILE)
+
+    # start scheduler and assign it to update recommender data
+    SCHEDULER.start()
+    schedule_recommender_data_update(SCHEDULER, service_config['update_data_hours'])
+    atexit.register(lambda: SCHEDULER.shutdown())  # Shut down the scheduler when exiting the app
+
+    return app
+
+
+app = create_app()
+
+
+def main():
+    service_config = load_config(CONFIG_FILE)
+    port = int(service_config['port'])
+    app.run(host='0.0.0.0', port=port, threaded=True)
 
 
 @app.before_request

@@ -13,12 +13,16 @@
 # Licence for the specific language governing permissions and limitations
 # under the Licence.
 
-from scipy.sparse import lil_matrix, csr_matrix
+from scipy.sparse import csr_matrix
 from enum import Enum
+import logging
 import numpy as np
 import warnings, sys, pickle, time
 sys.path.append('../../')
 from recommender_system.service.data_retriever import RatingApiHandler, ArticleSimilaritiesHandler
+
+
+LOGGER = logging.getLogger('werkzeug')
 
 
 class RatingMode(Enum):
@@ -29,12 +33,12 @@ class RatingMode(Enum):
 
 
 class RecommenderSystem:
-
     SAVING_PROCESS_ACTIVE = False
     RATING_MODE = RatingMode.RATING_USING_MEANS
     HYBRID_WEIGHT_U = 0.4
-    HYBRID_WEIGHT_I = 0.3
-    HYBRID_WEIGHT_C = 0.3
+    HYBRID_WEIGHT_I = 0.2
+    HYBRID_WEIGHT_C = 0.4
+    DEBUG = False
 
     def __init__(self):
         self.ui_matrix = None  # user-article matrix (values are the rating scores)
@@ -50,8 +54,21 @@ class RecommenderSystem:
         self.id_uri_dict = None
 
         self.default_recommendations = None
+        self.default_user_recommendations = None
 
         self.err_msg = ''
+
+        self.user_blacklist = []
+        self.item_blacklist = []
+
+    def add_item_to_blacklist(self, uri):
+        # add id into the black list, not the uri
+        if uri in self.uri_id_dict.keys():
+            id = self.uri_id_dict[uri]
+            self.item_blacklist.append(id)
+
+    def add_user_to_blacklist(self, id):
+        self.user_blacklist.append(id)
 
     def is_user_id_valid(self, user_id):
         """
@@ -70,30 +87,40 @@ class RecommenderSystem:
         else:
             return self.ui_matrix.shape[0]
 
-    def save_recommender_data(self, config_file, recommender_data_file):
+    def calculate_and_save_recommender_data(self, config_file, recommender_data_file):
         """
-        store ui_matrix, ii_matrix, correlations and neighbourhoods to a pickle file containing a dictionary variable
+        calculate and store ui_matrix, ii_matrix, correlations and neighbourhoods to a pickle file
         :param config_file:
         :param recommender_data_file:
         :return:
         """
 
         # calculate recommender data (ui_matrix, ii_matrix, correlations and neighbourhoods)
-        print("Calculating recommender data...")
+        LOGGER.debug("Calculating recommender data...")
         self.update_item_info(config_file)
         self.update_user_info(config_file)
         self.update_correlations_and_neighbourhood('user')
         self.update_correlations_and_neighbourhood('item')
         self.create_neighbourhood_dict('item-ii')
         self.create_default_recommendations()
+        self.create_default_user_recommendations()
 
+        self.save_recommender_data(recommender_data_file)
+
+    def save_recommender_data(self, recommender_data_file):
         # store the recommender data to a pickle file
-        print("Storing recommender data...")
-        RecommenderSystem.SAVING_PROCESS_ACTIVE = True
-        # pickle.dump(recommender_data, open(recommender_data_file, "wb"))
-        pickle.dump(self, open(recommender_data_file, "wb"))
-        RecommenderSystem.SAVING_PROCESS_ACTIVE = False
-        print("Finished storing recommender data...")
+        LOGGER.debug("Storing recommender data...")
+        complete = False
+        while not complete:
+            if RecommenderSystem.SAVING_PROCESS_ACTIVE:
+                LOGGER.warning("Saving stalled for 0.5 seconds... another saving process is being executed right now!!!")
+                time.sleep(0.5)
+            else:
+                RecommenderSystem.SAVING_PROCESS_ACTIVE = True
+                pickle.dump(self, open(recommender_data_file, "wb"))
+                RecommenderSystem.SAVING_PROCESS_ACTIVE = False
+                complete = True
+        LOGGER.debug("Finished storing recommender data...")
 
     @staticmethod
     def load_recommender_data(recommender_data_file):
@@ -107,7 +134,7 @@ class RecommenderSystem:
         loaded = False
         while not loaded:
             if RecommenderSystem.SAVING_PROCESS_ACTIVE:
-                print("Loading stalled for 0.5 seconds... saving process is being executed right now!!!")
+                LOGGER.warning("Loading stalled for 0.5 seconds... saving process is being executed right now!!!")
                 time.sleep(0.5)
             else:
                 recommender_data = pickle.load(open(recommender_data_file, "rb"))
@@ -165,7 +192,7 @@ class RecommenderSystem:
         col_idxs = list()
         max_user_id = max(set(rating['rated_by'] for rating in ratings_json))
         # max_item_id = max(set(rating['object_id'] for rating in ratings_json))
-        max_item_id = max(self.uri_id_dict.values()) + 1
+        max_item_id = max(self.uri_id_dict.values())
         for rating in ratings_json:
             user_id = rating['rated_by']
             item_uri = rating['uri']
@@ -174,13 +201,34 @@ class RecommenderSystem:
             if item_uri in self.uri_id_dict.keys():
                 item_id = self.uri_id_dict[item_uri]
                 rating = rating['rating']
-                if item_id < max_item_id:
+                if item_id <= max_item_id:
                     values.append(rating)
                     user_id_in_ui = user_id - 1
                     row_idxs.append(user_id_in_ui)
                     # col_idxs.append(item_id - 1)
                     col_idxs.append(item_id)
-        self.ui_matrix = csr_matrix((values, (row_idxs, col_idxs)), shape=(max_user_id, max_item_id))
+            else:
+                max_item_id += 1
+                item_id = max_item_id
+                self.id_uri_dict[item_id] = item_uri
+                self.uri_id_dict[item_uri] = item_id
+                rating = rating['rating']
+
+                values.append(rating)
+                user_id_in_ui = user_id - 1
+                row_idxs.append(user_id_in_ui)
+                # col_idxs.append(item_id - 1)
+                col_idxs.append(item_id)
+
+                # update ii matrix (add one empty row and column), and uri-id dictionaries
+                ii_matrix_shape = self.ii_matrix.shape
+                self.ii_matrix = csr_matrix((self.ii_matrix.data, self.ii_matrix.indices,
+                                             np.hstack((self.ii_matrix.indptr, self.ii_matrix.indptr[-1]))),
+                                            shape=(ii_matrix_shape[0] + 1, ii_matrix_shape[1] + 1))
+                # self.ii_matrix.reshape(shape=(ii_matrix_shape[0] + 1, ii_matrix_shape[1] + 1))
+                # self.id_uri_dict = item_id
+        columns = max_item_id + 1
+        self.ui_matrix = csr_matrix((values, (row_idxs, col_idxs)), shape=(max_user_id, columns))
 
     def update_correlations_and_neighbourhood(self, unit='user'):
         """
@@ -202,20 +250,20 @@ class RecommenderSystem:
         # define the matrix from which we will extract correlations
         if unit == 'user':
             if self.ui_matrix is None:
-                print("User-item matrix does not exist, can't create correlations!!!")
+                LOGGER.error("User-item matrix does not exist, can't create correlations!!!")
                 return
             target_matrix = self.ui_matrix.copy()
             num_rows = target_matrix.shape[0]
             correlation_matrix = self.users_correlations = np.zeros(shape=(num_rows, num_rows))
         elif unit == 'item':
             if self.ui_matrix is None:
-                print("User-item matrix does not exist, can't create correlations!!!")
+                LOGGER.error("User-item matrix does not exist, can't create correlations!!!")
                 return
             target_matrix = self.ui_matrix.transpose().tocsr().copy()
             num_rows = target_matrix.shape[0]
             correlation_matrix = self.items_correlations = np.zeros(shape=(num_rows, num_rows))
         else:
-            print("Wrong matrix parameter value!!!")
+            LOGGER.error("Wrong matrix parameter value!!!")
             return
 
         # iterate though rows of the matrix and calculate correlation in batches
@@ -259,28 +307,28 @@ class RecommenderSystem:
         if unit == 'user':
             correlation_matrix = self.users_correlations
             if self.users_correlations is None:
-                print("User correlations do not exist, can't create neighbourhood!!!")
+                LOGGER.error("User correlations do not exist, can't create neighbourhood!!!")
                 return
             neighbourhood = self.users_neighbourhood = dict()
         elif unit == 'item':
             correlation_matrix = self.items_correlations
             if self.items_correlations is None:
-                print("Item correlations do not exist, can't create neighbourhood!!!")
+                LOGGER.error("Item correlations do not exist, can't create neighbourhood!!!")
                 return
             neighbourhood = self.items_neighbourhood = dict()
         elif unit == 'item-ii':
             # in order to consider all cases as a numpy array
             correlation_matrix = self.ii_matrix.copy().toarray()
             if self.ii_matrix is None:
-                print("Item similarities do not exist, can't create neighbourhood!!!")
+                LOGGER.error("Item similarities do not exist, can't create neighbourhood!!!")
                 return
             neighbourhood = self.items_neighbourhood_ii = dict()
         else:
-            print("Wrong matrix parameter value!!!")
+            LOGGER.error("Wrong matrix parameter value!!!")
             return
 
         for id in range(len(correlation_matrix)):
-        # for id in range(correlation_matrix.shape[0]):
+            # for id in range(correlation_matrix.shape[0]):
             correlation_vector = correlation_matrix[id, :]
             correlation_vector = [x if not np.isnan(x) else 0 for x in correlation_vector]
             sorted_indices = sorted(range(len(correlation_vector)), key=lambda i: correlation_vector[i])
@@ -301,35 +349,74 @@ class RecommenderSystem:
                 mean_score = col.sum() / num_ratings
                 mean_scores.append(mean_score)
             num_ratings_list.append(num_ratings)
+        # sort based on two criteria, first is the mean rating score, second is num users who rated the item
         sorted_indices = sorted(range(len(mean_scores)), key=lambda i: (mean_scores[i], num_ratings_list[i]))
         sorted_indices.reverse()
         self.default_recommendations = sorted_indices
 
+    def create_default_user_recommendations(self):
+        num_ratings_list = []
+        for i in range(self.ui_matrix.shape[0]):
+            row = self.ui_matrix.getrow(i)
+            num_ratings = row.nnz
+            num_ratings_list.append(num_ratings)
+        # sort based on the number of ratings
+        sorted_indices = sorted(range(len(num_ratings_list)), key=lambda i: num_ratings_list[i])
+        sorted_indices.reverse()
+        self.default_user_recommendations = sorted_indices
 
     def recommend_items(self, user_id, max_recommendations, method='user'):
         if method == 'hybrid':
             predictions_u = self.get_predictions(user_id, method='user')
+            predictions_u = [x if 0 <= x <= 5 else 5.0 if x >= 5 else 0.0 for x in predictions_u]
             predictions_i = self.get_predictions(user_id, method='item')
+            predictions_i = [x if 0 <= x <= 5 else 5.0 if x >= 5 else 0.0 for x in predictions_i]
             predictions_c = self.get_predictions(user_id, method='content')
+            predictions_c = [x if 0 <= x <= 5 else 5.0 if x >= 5 else 0.0 for x in predictions_c]
             if len(predictions_u) == 0 or len(predictions_i) == 0 or len(predictions_c) == 0:
                 return [self.err_msg]
             predictions = [RecommenderSystem.HYBRID_WEIGHT_U * x_u +
                            RecommenderSystem.HYBRID_WEIGHT_I * x_i +
                            RecommenderSystem.HYBRID_WEIGHT_C * x_c
                            for x_u, x_i, x_c in zip(predictions_u, predictions_i, predictions_c)]
+
+            # ONLY FOR DEBUGGING
+            if self.DEBUG:
+                top_n = 60
+                if all([p == 0 for p in predictions]):
+                    LOGGER.debug("Default recommendations:")
+                    for x in self.default_recommendations[:top_n]:
+                        LOGGER.debug(x, self.id_uri_dict[x])
+                else:
+                    self.print_top_predictions(predictions_u, predictions_i, predictions_c, predictions, top_n)
         else:
             predictions = self.get_predictions(user_id, method=method)
             if len(predictions) == 0:
                 return [self.err_msg]
 
         if all([p == 0 for p in predictions]):
-            recommendations = [self.id_uri_dict[x] for x in self.default_recommendations[:max_recommendations]]
+            recommendations = self.recommend_default(max_recommendations)
         else:
             sorted_indices = sorted(range(len(predictions)), key=lambda i: predictions[i])
             sorted_indices.reverse()
 
+            # remove deleted items
+            sorted_indices = [x for x in sorted_indices if x not in self.item_blacklist]
+
             recommendations = [self.id_uri_dict[x] for x in sorted_indices[:max_recommendations]]
         return recommendations
+
+    def recommend_default(self, max_recommendations):
+        # remove deleted items
+        self.default_recommendations = [x for x in self.default_recommendations if x not in self.item_blacklist]
+
+        return [self.id_uri_dict[x] for x in self.default_recommendations[:max_recommendations]]
+
+    def recommend_default_users(self, max_recommendations):
+        # remove deleted users
+        self.default_user_recommendations = [x for x in self.default_user_recommendations if x not in self.user_blacklist]
+
+        return [x for x in self.default_user_recommendations[:max_recommendations]]
 
     def get_predictions(self, user_id, max_neighbours=10, method='user'):
         """
@@ -373,6 +460,14 @@ class RecommenderSystem:
         user_rating_row = self.ui_matrix.getrow(user_id_in_ui)
         zero_idxs = np.where(user_rating_row.toarray() == 0)[1]
         predictions = np.zeros(shape=self.ui_matrix.shape[1])
+
+        # ONLY FOR DEBUGGING
+        # print top similar items
+        if self.DEBUG:
+            if method == 'content':
+                top_n = 60
+                self.print_non_zero(user_rating_row, top_n)
+
         if user_rating_row.nnz == 0:
             return predictions
         for zero_idx in zero_idxs:
@@ -454,7 +549,6 @@ class RecommenderSystem:
 
         return predictions
 
-
     def rating_function(self, neighbour_rating, neighbour_total_ratings):
         """
         Get rating function score (used when we do not simply consider the rating score of a neighbour)
@@ -507,8 +601,75 @@ class RecommenderSystem:
         else:
             user_id_in_ui = user_id - 1
             neighbours = self.users_neighbourhood[user_id_in_ui]
+
+            # remove deleted users
+            neighbours = [x for x in neighbours if x not in self.user_blacklist]
+
             # increment by one to return the original indices
             recommendations = [x + 1 for x in neighbours[:max_recommendations]]
             return recommendations
 
+    # DEBUGGING FUNCTIONS BELOW!!!
+    def print_top_predictions(self, predictions_u, predictions_i, predictions_c, predictions, top_n):
+        print("Top predictions user-based:")
+        print('id uri prediction_user prediction_item prediction_content final_prediction')
+        top_predictions_u = sorted(range(len(predictions_u)), key=lambda i: predictions_u[i])
+        top_predictions_u.reverse()
+        for i in range(top_n):
+            top_prediction = top_predictions_u[i]
+            top_prediction_uri = self.id_uri_dict[top_prediction]
+            print(top_prediction, top_prediction_uri,
+                  predictions_u[top_prediction], predictions_i[top_prediction], predictions_c[top_prediction],
+                  predictions[top_prediction])
+        print()
 
+        print("Top predictions item-based:")
+        print('id uri prediction_user prediction_item prediction_content final_prediction')
+        top_predictions_i = sorted(range(len(predictions_i)), key=lambda i: predictions_i[i])
+        top_predictions_i.reverse()
+        for i in range(top_n):
+            top_prediction = top_predictions_i[i]
+            top_prediction_uri = self.id_uri_dict[top_prediction]
+            print(top_prediction, top_prediction_uri,
+                  predictions_u[top_prediction], predictions_i[top_prediction], predictions_c[top_prediction],
+                  predictions[top_prediction])
+        print()
+
+        print("Top predictions content-based:")
+        print('id uri prediction_user prediction_item prediction_content final_prediction')
+        top_predictions_c = sorted(range(len(predictions_c)), key=lambda i: predictions_c[i])
+        top_predictions_c.reverse()
+        for i in range(top_n):
+            top_prediction = top_predictions_c[i]
+            top_prediction_uri = self.id_uri_dict[top_prediction]
+            print(top_prediction, top_prediction_uri,
+                  predictions_u[top_prediction], predictions_i[top_prediction], predictions_c[top_prediction],
+                  predictions[top_prediction])
+        print()
+
+        print("Top predictions final:")
+        print('id uri prediction_user prediction_item prediction_content final_prediction')
+        top_predictions = sorted(range(len(predictions)), key=lambda i: predictions[i])
+        top_predictions.reverse()
+        for i in range(top_n):
+            top_prediction = top_predictions[i]
+            top_prediction_uri = self.id_uri_dict[top_prediction]
+            print(top_prediction, top_prediction_uri,
+                  predictions_u[top_prediction], predictions_i[top_prediction], predictions_c[top_prediction],
+                  predictions[top_prediction])
+        print()
+
+    def print_non_zero(self, user_rating_row, top_n):
+        non_zero_idxs = user_rating_row.nonzero()[1]
+        for non_zero_idx in non_zero_idxs:
+            self.print_most_similar_items(non_zero_idx, top_n)
+
+    def print_most_similar_items(self, item_id, num):
+        print('Most similar items for id', item_id, ":", self.id_uri_dict[item_id])
+        print('id uri similarity')
+        item_row = self.ii_matrix.getrow(item_id).toarray()[0]
+        top_article_ids = sorted(range(len(item_row)), key=lambda i: item_row[i])
+        top_article_ids.reverse()
+        for i in range(num):
+            print(top_article_ids[i], self.id_uri_dict[top_article_ids[i]], self.ii_matrix[item_id, top_article_ids[i]])
+        print()

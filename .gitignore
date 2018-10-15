@@ -1,8 +1,7 @@
-.env/
-env/
-logs/
-recommender_system/__pycache__/
-recommender_system/service/.gitignore
-recommender_system/service/__pycache__/
-recommender_system/service/logs/
-
+.venv/**
+*.pyc
+.project
+.pydevproject
+recommender_system/service/config.ini
+recommender_system/service/data/recommender_data.pkl
+recommender_system/service/logs/log*

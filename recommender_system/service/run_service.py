@@ -18,7 +18,7 @@ sys.path.append('../../')
 from flask import Flask, request, Response, abort
 from logging.handlers import TimedRotatingFileHandler
 from recommender_system.service.recommender import RecommenderSystem
-from recommender_system.service.data_retriever import RatingApiHandler, ArticleSimilaritiesHandler
+from recommender_system.service.data_retriever import RatingApiHandler
 from flask import send_from_directory
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -31,21 +31,7 @@ RECOMMENDER_DATA_FILE = DATA_DIR + "/recommender_data.pkl"
 ARTICLE_SIMILARITIES_FILE = DATA_DIR + "/sim_mx.pkl"
 BLOCK_LIST = []  # fill this list with ips to be blocked (they will always get a 403 error)
 SCHEDULER = BackgroundScheduler()  # variable to schedule tasks
-app = Flask(__name__)
-
-
-def main():
-    create_folders()
-    setup_logger()
-    service_config = load_config(CONFIG_FILE)
-    port = int(service_config['port'])
-
-    # start scheduler and assign it to update recommender data
-    SCHEDULER.start()
-    schedule_recommender_data_update(SCHEDULER, service_config['update_data_hours'])
-    atexit.register(lambda: SCHEDULER.shutdown())  # Shut down the scheduler when exiting the app
-
-    app.run(host='0.0.0.0', port=port, threaded=True)
+LOGGER = logging.getLogger('werkzeug')
 
 
 def create_folders():
@@ -68,6 +54,7 @@ def setup_logger():
     """
     # logger used in flask, by default it prints only to stdout, we configure it to write to file as well
     logger = logging.getLogger('werkzeug')
+    # TODO: switch to INFO later on
     logger.setLevel(logging.DEBUG)
 
     file_handler = TimedRotatingFileHandler(LOGS_DIR + '/log', when='D')
@@ -89,9 +76,10 @@ def load_config(filename):
 
 
 def update_recommender_data():
-    print('Recommender data update started at', datetime.datetime.now())
+    LOGGER.info('Recommender data update started at %s' % datetime.datetime.now())
     recommender = RecommenderSystem()
-    recommender.save_recommender_data(CONFIG_FILE, RECOMMENDER_DATA_FILE)
+    recommender.calculate_and_save_recommender_data(CONFIG_FILE, RECOMMENDER_DATA_FILE)
+    LOGGER.info('Recommender data update finished at %s' % datetime.datetime.now())
 
 
 def schedule_recommender_data_update(scheduler, hours):
@@ -103,6 +91,30 @@ def schedule_recommender_data_update(scheduler, hours):
         id='update_recommender_data',
         name='Update recommender data',
         replace_existing=True)
+
+
+def create_app():
+    app = Flask(__name__)
+
+    create_folders()
+    setup_logger()
+    service_config = load_config(CONFIG_FILE)
+
+    # start scheduler and assign it to update recommender data
+    SCHEDULER.start()
+    schedule_recommender_data_update(SCHEDULER, service_config['update_data_hours'])
+    atexit.register(lambda: SCHEDULER.shutdown())  # Shut down the scheduler when exiting the app
+
+    return app
+
+
+app = create_app()
+
+
+def main():
+    service_config = load_config(CONFIG_FILE)
+    port = int(service_config['port'])
+    app.run(host='0.0.0.0', port=port, threaded=True)
 
 
 @app.before_request
@@ -134,19 +146,19 @@ def recommend_items():
     # if set to true, all calculations are made real-time (very slow option)
     on_the_fly = params.get('on_the_fly') == 'true'
 
-    print()
-    print("ITEM RECOMMENDER SERVICE REQUEST")
-    print("User id:", user_id)
-    print("Max number of recommendations:", max_items)
-    print("Method:", method)
+    if LOGGER.level == logging.DEBUG:
+        LOGGER.debug("ITEM RECOMMENDER SERVICE REQUEST")
+        LOGGER.debug("User id: %s" % user_id)
+        LOGGER.debug("Max number of recommendations: %s" % max_items)
+        LOGGER.debug("Method: %s" % method)
 
     valid_methods = ['user', 'item', 'item_h', 'hybrid', 'content']
     status_code = 200
 
     response_object = dict()
-    if user_id is None or max_items is None:
+    if max_items is None:
         status_code = 400
-        error = 'Invalid parameters (user_id or max_num)'
+        error = 'Invalid max_num'
         response_object['error'] = error
     elif method not in valid_methods:
         status_code = 400
@@ -159,23 +171,23 @@ def recommend_items():
         else:
             # save recommender data if they do not exist, otherwise load them from file
             if not os.path.isfile(RECOMMENDER_DATA_FILE):
-                recommender.save_recommender_data(CONFIG_FILE, RECOMMENDER_DATA_FILE)
+                recommender.calculate_and_save_recommender_data(CONFIG_FILE, RECOMMENDER_DATA_FILE)
             else:
                 recommender = RecommenderSystem.load_recommender_data(RECOMMENDER_DATA_FILE)
         # check validity of user id based on retrieved data
-        if recommender.is_user_id_valid(user_id):
+        if user_id is None or not recommender.is_user_id_valid(user_id):
+            recommendations = recommender.recommend_default(max_items)
+            response_object['input_user_id'] = 'Not defined'
+            response_object['recommended_items'] = recommendations
+        else:
             recommendations = recommender.recommend_items(user_id, max_items, method=method)
             response_object['input_user_id'] = user_id
             response_object['recommended_items'] = recommendations
-        else:
-            status_code = 400
-            error = 'user id must have values between 1 and ' + str(recommender.max_user_id())
-            response_object['error'] = error
     response = Response(response=json.dumps(response_object),
                         status=status_code,
                         mimetype="application/json")
     elapsed = time.time() - start
-    print("Recommender service elapsed time:", elapsed, "seconds")
+    LOGGER.debug("Recommender service elapsed time: %d seconds" % elapsed)
     return response
 
 
@@ -196,10 +208,10 @@ def recommend_users():
     # if set to true, all calculations are made real-time (very slow option)
     on_the_fly = params.get('on_the_fly') == 'true'
 
-    print()
-    print("USER RECOMMENDER SERVICE REQUEST")
-    print("User id:", user_id)
-    print("Max number of recommendations:", max_users)
+    if LOGGER.level == logging.DEBUG:
+        LOGGER.debug("USER RECOMMENDER SERVICE REQUEST")
+        LOGGER.debug("User id: %s" % user_id)
+        LOGGER.debug("Max number of recommendations: %s" % max_users)
 
     status_code = 200
 
@@ -216,7 +228,7 @@ def recommend_users():
         else:
             # save recommender data if they do not exist
             if not os.path.isfile(RECOMMENDER_DATA_FILE):
-                recommender.save_recommender_data(CONFIG_FILE, RECOMMENDER_DATA_FILE)
+                recommender.calculate_and_save_recommender_data(CONFIG_FILE, RECOMMENDER_DATA_FILE)
             else:
                 recommender = RecommenderSystem.load_recommender_data(RECOMMENDER_DATA_FILE)
         # check validity of user id based on retrieved data
@@ -225,14 +237,83 @@ def recommend_users():
             response_object['input_user_id'] = user_id
             response_object['recommended_user_ids'] = recommendations
         else:
-            status_code = 400
-            error = 'user id must have values between 1 and ' + str(recommender.max_user_id())
-            response_object['error'] = error
+            recommendations = recommender.recommend_default_users(max_users)
+            response_object['input_user_id'] = 'Not defined'
+            response_object['recommended_user_ids'] = recommendations
+            # status_code = 400
+            # error = 'user id must have values between 1 and ' + str(recommender.max_user_id())
+            # response_object['error'] = error
     response = Response(response=json.dumps(response_object),
                         status=status_code,
                         mimetype="application/json")
     elapsed = time.time() - start
-    print("Recommender service elapsed time:", elapsed, "seconds")
+    LOGGER.debug("Recommender service elapsed time: %d seconds" % elapsed)
+    return response
+
+
+@app.route('/black_list_item', methods=['GET'])
+def black_list_item():
+
+    params = request.args
+    uri = params.get('uri')
+
+    if LOGGER.level == logging.DEBUG:
+        LOGGER.debug("REQUEST FOR ITEM TO BE ADDED INTO BLACKLIST")
+        LOGGER.debug("URI: %s" % uri)
+
+    status_code = 200
+
+    response_object = dict()
+    if uri is None:
+        status_code = 400
+        error = 'Invalid parameters (uri)'
+        response_object['error'] = error
+    else:
+        recommender = RecommenderSystem()
+        if not os.path.isfile(RECOMMENDER_DATA_FILE):
+            recommender.calculate_and_save_recommender_data(CONFIG_FILE, RECOMMENDER_DATA_FILE)
+        else:
+            recommender = RecommenderSystem.load_recommender_data(RECOMMENDER_DATA_FILE)
+        recommender.add_item_to_blacklist(uri)
+        recommender.save_recommender_data(RECOMMENDER_DATA_FILE)
+        response_object['message'] = uri + " is added into the deleted items."
+
+    response = Response(response=json.dumps(response_object),
+                        status=status_code,
+                        mimetype="application/json")
+    return response
+
+
+@app.route('/black_list_user', methods=['GET'])
+def black_list_user():
+
+    params = request.args
+    id = params.get('id', type=int)
+
+    if LOGGER.level == logging.DEBUG:
+        LOGGER.debug("REQUEST FOR USER TO BE ADDED INTO BLACKLIST")
+        LOGGER.debug("ID: %s" % id)
+
+    status_code = 200
+
+    response_object = dict()
+    if id is None:
+        status_code = 400
+        error = 'Invalid parameters (id)'
+        response_object['error'] = error
+    else:
+        recommender = RecommenderSystem()
+        if not os.path.isfile(RECOMMENDER_DATA_FILE):
+            recommender.calculate_and_save_recommender_data(CONFIG_FILE, RECOMMENDER_DATA_FILE)
+        else:
+            recommender = RecommenderSystem.load_recommender_data(RECOMMENDER_DATA_FILE)
+        recommender.add_user_to_blacklist(id)
+        recommender.save_recommender_data(RECOMMENDER_DATA_FILE)
+        response_object['message'] = id," is added into the deleted user ids."
+
+    response = Response(response=json.dumps(response_object),
+                        status=status_code,
+                        mimetype="application/json")
     return response
 
 

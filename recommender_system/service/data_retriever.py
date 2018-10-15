@@ -76,6 +76,7 @@ class RatingApiHandler:
         # send request and return response
         response = requests.get(ratings_url, headers=headers)
         json_response = response.json()
+        # json_response = json.load(open('data.json'))
         return json_response
 
 

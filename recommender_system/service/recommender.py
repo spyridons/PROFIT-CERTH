@@ -15,10 +15,14 @@
 
 from scipy.sparse import csr_matrix
 from enum import Enum
+import logging
 import numpy as np
 import warnings, sys, pickle, time
 sys.path.append('../../')
 from recommender_system.service.data_retriever import RatingApiHandler, ArticleSimilaritiesHandler
+
+
+LOGGER = logging.getLogger('werkzeug')
 
 
 class RatingMode(Enum):
@@ -92,7 +96,7 @@ class RecommenderSystem:
         """
 
         # calculate recommender data (ui_matrix, ii_matrix, correlations and neighbourhoods)
-        print("Calculating recommender data...")
+        LOGGER.debug("Calculating recommender data...")
         self.update_item_info(config_file)
         self.update_user_info(config_file)
         self.update_correlations_and_neighbourhood('user')
@@ -105,18 +109,18 @@ class RecommenderSystem:
 
     def save_recommender_data(self, recommender_data_file):
         # store the recommender data to a pickle file
-        print("Storing recommender data...")
+        LOGGER.debug("Storing recommender data...")
         complete = False
         while not complete:
             if RecommenderSystem.SAVING_PROCESS_ACTIVE:
-                print("Saving stalled for 0.5 seconds... another saving process is being executed right now!!!")
+                LOGGER.warning("Saving stalled for 0.5 seconds... another saving process is being executed right now!!!")
                 time.sleep(0.5)
             else:
                 RecommenderSystem.SAVING_PROCESS_ACTIVE = True
                 pickle.dump(self, open(recommender_data_file, "wb"))
                 RecommenderSystem.SAVING_PROCESS_ACTIVE = False
                 complete = True
-        print("Finished storing recommender data...")
+        LOGGER.debug("Finished storing recommender data...")
 
     @staticmethod
     def load_recommender_data(recommender_data_file):
@@ -130,7 +134,7 @@ class RecommenderSystem:
         loaded = False
         while not loaded:
             if RecommenderSystem.SAVING_PROCESS_ACTIVE:
-                print("Loading stalled for 0.5 seconds... saving process is being executed right now!!!")
+                LOGGER.warning("Loading stalled for 0.5 seconds... saving process is being executed right now!!!")
                 time.sleep(0.5)
             else:
                 recommender_data = pickle.load(open(recommender_data_file, "rb"))
@@ -246,20 +250,20 @@ class RecommenderSystem:
         # define the matrix from which we will extract correlations
         if unit == 'user':
             if self.ui_matrix is None:
-                print("User-item matrix does not exist, can't create correlations!!!")
+                LOGGER.error("User-item matrix does not exist, can't create correlations!!!")
                 return
             target_matrix = self.ui_matrix.copy()
             num_rows = target_matrix.shape[0]
             correlation_matrix = self.users_correlations = np.zeros(shape=(num_rows, num_rows))
         elif unit == 'item':
             if self.ui_matrix is None:
-                print("User-item matrix does not exist, can't create correlations!!!")
+                LOGGER.error("User-item matrix does not exist, can't create correlations!!!")
                 return
             target_matrix = self.ui_matrix.transpose().tocsr().copy()
             num_rows = target_matrix.shape[0]
             correlation_matrix = self.items_correlations = np.zeros(shape=(num_rows, num_rows))
         else:
-            print("Wrong matrix parameter value!!!")
+            LOGGER.error("Wrong matrix parameter value!!!")
             return
 
         # iterate though rows of the matrix and calculate correlation in batches
@@ -303,24 +307,24 @@ class RecommenderSystem:
         if unit == 'user':
             correlation_matrix = self.users_correlations
             if self.users_correlations is None:
-                print("User correlations do not exist, can't create neighbourhood!!!")
+                LOGGER.error("User correlations do not exist, can't create neighbourhood!!!")
                 return
             neighbourhood = self.users_neighbourhood = dict()
         elif unit == 'item':
             correlation_matrix = self.items_correlations
             if self.items_correlations is None:
-                print("Item correlations do not exist, can't create neighbourhood!!!")
+                LOGGER.error("Item correlations do not exist, can't create neighbourhood!!!")
                 return
             neighbourhood = self.items_neighbourhood = dict()
         elif unit == 'item-ii':
             # in order to consider all cases as a numpy array
             correlation_matrix = self.ii_matrix.copy().toarray()
             if self.ii_matrix is None:
-                print("Item similarities do not exist, can't create neighbourhood!!!")
+                LOGGER.error("Item similarities do not exist, can't create neighbourhood!!!")
                 return
             neighbourhood = self.items_neighbourhood_ii = dict()
         else:
-            print("Wrong matrix parameter value!!!")
+            LOGGER.error("Wrong matrix parameter value!!!")
             return
 
         for id in range(len(correlation_matrix)):
@@ -380,9 +384,9 @@ class RecommenderSystem:
             if self.DEBUG:
                 top_n = 60
                 if all([p == 0 for p in predictions]):
-                    print("Default recommendations:")
+                    LOGGER.debug("Default recommendations:")
                     for x in self.default_recommendations[:top_n]:
-                        print(x, self.id_uri_dict[x])
+                        LOGGER.debug(x, self.id_uri_dict[x])
                 else:
                     self.print_top_predictions(predictions_u, predictions_i, predictions_c, predictions, top_n)
         else:

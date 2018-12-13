@@ -20,7 +20,7 @@ import numpy as np
 import warnings, sys, pickle, time
 sys.path.append('../../')
 from recommender_system.service.data_retriever import RatingApiHandler, ArticleSimilaritiesHandler
-
+from random import shuffle
 
 LOGGER = logging.getLogger('werkzeug')
 
@@ -467,6 +467,17 @@ class RecommenderSystem:
         zero_idxs = np.where(user_rating_row.toarray() == 0)[1]
         predictions = np.zeros(shape=self.ui_matrix.shape[1])
 
+        # prepare some vars to speed up content-based recommendations
+        if method == 'content':
+            num_rated_items = user_rating_row.nnz
+            values = user_rating_row.data
+            columns = user_rating_row.indices
+            user_rating_row_pairs = list(zip(values, columns))
+            shuffle(user_rating_row_pairs)
+            sorted_user_rating_row_pairs = sorted(user_rating_row_pairs, key=lambda pair: pair[0])
+            sorted_user_rating_row_pairs.reverse()
+            sorted_user_rating_row_pairs = sorted_user_rating_row_pairs[:10]
+
         # ONLY FOR DEBUGGING
         # print top similar items
         if self.DEBUG:
@@ -479,7 +490,6 @@ class RecommenderSystem:
         for zero_idx in zero_idxs:
             # content based approach
             if method == 'content':
-                num_rated_items = user_rating_row.nnz
 
                 # rows, cols = user_rating_row.nonzero()
                 # sum_products = 0
@@ -492,15 +502,12 @@ class RecommenderSystem:
 
                 # speeded up version of the above commented-out lines
                 # since 'user_rating_row' consists of only one row, '.indices' are the actual indices of the '.data'
-                values = user_rating_row.data
-                columns = user_rating_row.indices
                 sum_products = 0
-                for val, col in zip(values, columns):
+                for val, col in sorted_user_rating_row_pairs:
                     item_idx = col
                     similarity = self.ii_matrix[zero_idx, item_idx]
                     product = val * similarity
                     sum_products += product
-
                 prediction = sum_products / num_rated_items
                 predictions[zero_idx] = prediction
 

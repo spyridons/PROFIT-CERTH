@@ -105,10 +105,6 @@ class RecommenderSystem:
         self.create_default_recommendations()
         self.create_default_user_recommendations()
 
-        # shrink large arrays
-        self.items_correlations = RecommenderSystem.shrink_array(self.items_correlations)
-        self.users_correlations = RecommenderSystem.shrink_array(self.users_correlations)
-
         self.save_recommender_data(recommender_data_file)
 
     def save_recommender_data(self, recommender_data_file):
@@ -338,8 +334,6 @@ class RecommenderSystem:
             sorted_indices = sorted(range(len(correlation_vector)), key=lambda i: correlation_vector[i])
             sorted_indices.remove(id)
             sorted_indices.reverse()
-            if len(sorted_indices) > 500:
-                sorted_indices = sorted_indices[:500]
             neighbourhood[id] = sorted_indices
 
     def create_default_recommendations(self):
@@ -480,27 +474,14 @@ class RecommenderSystem:
             # content based approach
             if method == 'content':
                 num_rated_items = user_rating_row.nnz
-
-                # rows, cols = user_rating_row.nonzero()
-                # sum_products = 0
-                # for row, col in zip(rows, cols):
-                #     item_idx = col
-                #     rating = user_rating_row[0, item_idx]
-                #     similarity = self.ii_matrix[zero_idx, item_idx]
-                #     product = rating * similarity
-                #     sum_products += product
-
-                # speeded up version of the above commented-out lines
-                # since 'user_rating_row' consists of only one row, '.indices' are the actual indices of the '.data'
-                values = user_rating_row.data
-                columns = user_rating_row.indices
+                rows, cols = user_rating_row.nonzero()
                 sum_products = 0
-                for val, col in zip(values, columns):
+                for row, col in zip(rows, cols):
                     item_idx = col
+                    rating = user_rating_row[0, item_idx]
                     similarity = self.ii_matrix[zero_idx, item_idx]
-                    product = val * similarity
+                    product = rating * similarity
                     sum_products += product
-
                 prediction = sum_products / num_rated_items
                 predictions[zero_idx] = prediction
 
@@ -627,23 +608,6 @@ class RecommenderSystem:
             # increment by one to return the original indices
             recommendations = [x + 1 for x in neighbours[:max_recommendations]]
             return recommendations
-
-
-    @staticmethod
-    def shrink_array(matrix):
-        """
-        Returns a csr matrix by keeping only the values above zero
-        :param matrix: a numpy array
-        :return:
-        """
-
-        matrix[np.isnan(matrix)] = -1
-        matrix[matrix < 0] = 0
-        matrix = csr_matrix(matrix)
-        matrix.eliminate_zeros()
-        matrix = csr_matrix.maximum(matrix, matrix.transpose())
-
-        return matrix
 
     # DEBUGGING FUNCTIONS BELOW!!!
     def print_top_predictions(self, predictions_u, predictions_i, predictions_c, predictions, top_n):

@@ -142,7 +142,7 @@ def recommend_items():
     params = request.args
     user_id = params.get('user_id', type=int)
     max_items = params.get('max_num', type=int)
-    method = params.get('method', 'content')
+    method = params.get('method', 'user')
     # if set to true, all calculations are made real-time (very slow option)
     on_the_fly = params.get('on_the_fly') == 'true'
 

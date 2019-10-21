@@ -10,5 +10,5 @@ numpy==1.13.3
 requests==2.18.4
 scipy==1.0.0
 urllib3==1.22
-Werkzeug==0.12.2
+Werkzeug==0.15.3
 apscheduler==3.4.0

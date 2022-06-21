@@ -1,5 +1,5 @@
 Flask==0.12.2
-numpy==1.13.3
+numpy==1.22.0
 scipy==1.0.0
 requests==2.18.4
 APScheduler==3.4.0
